@@ -19,7 +19,8 @@ class Product extends Model
 
     public function stores(): BelongsToMany
     {
-        return $this->belongsToMany(Store::class)->withTimestamps();
+        return $this->belongsToMany(Store::class, 'product_store', 'product_id', 'store_id')
+            ->withTimestamps();
     }
 
     public function scopeAvailableForStore($query, int $storeId)
