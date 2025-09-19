@@ -28,6 +28,30 @@
             </div>
         </div>
 
+        <div class="border rounded p-4 space-y-2">
+            <div class="font-semibold">取扱店舗</div>
+            <label class="inline-flex items-center gap-2">
+                <input type="radio" name="is_all_store" value="1" @checked(old('is_all_store', $row->is_all_store ?? true))>
+                <span>全店舗で販売</span>
+            </label>
+            <label class="inline-flex items-center gap-2">
+                <input type="radio" name="is_all_store" value="0" @checked(!old('is_all_store', $row->is_all_store ?? true))>
+                <span>店舗限定で販売</span>
+            </label>
+            <div id="jsStoreSelect" class="mt-2 {{ old('is_all_store', $row->is_all_store ?? true) ? 'hidden' : '' }}">
+                <label class="form-label">対象店舗を選択</label>
+                <select name="store_ids[]" class="form-input" multiple size="5">
+                    @foreach($stores as $store)
+                        <option value="{{ $store->id }}" @selected(in_array($store->id, old('store_ids', $selectedStoreIds ?? [])))>
+                            {{ $store->name }}
+                        </option>
+                    @endforeach
+                </select>
+                <div class="text-xs text-gray-500 mt-1">複数選択できます（Ctrl/⌘キー）。</div>
+                @error('store_ids')<div class="form-error">{{ $message }}</div>@enderror
+            </div>
+        </div>
+
         <div>
             <label class="form-label">説明</label>
             <textarea name="description" class="form-input" rows="3">{{ old('description',$row->description) }}</textarea>
@@ -41,4 +65,20 @@
 
         <button class="btn-primary">保存</button>
     </form>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const radios = document.querySelectorAll('input[name="is_all_store"]');
+            const storeBox = document.getElementById('jsStoreSelect');
+            radios.forEach(radio => {
+                radio.addEventListener('change', () => {
+                    if (radio.value === '0' && radio.checked) {
+                        storeBox?.classList.remove('hidden');
+                    } else if (radio.value === '1' && radio.checked) {
+                        storeBox?.classList.add('hidden');
+                    }
+                });
+            });
+        });
+    </script>
 @endsection
