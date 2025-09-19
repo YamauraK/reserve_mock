@@ -14,7 +14,7 @@
             <table class="table">
                 <thead>
                 <tr>
-                    <th>ID</th><th>名前</th><th>メール</th><th>権限</th><th>作成日</th><th></th>
+                    <th>ID</th><th>名前</th><th>メール</th><th>店舗</th><th>権限</th><th>作成日</th><th></th>
                 </tr>
                 </thead>
                 <tbody>
@@ -23,6 +23,7 @@
                         <td>{{ $u->id }}</td>
                         <td>{{ $u->name }}</td>
                         <td>{{ $u->email }}</td>
+                        <td>{{ $u->store?->name ?? '―' }}</td>
                         <td>{{ $roleLabels[$u->role] ?? $u->role }}</td>
                         <td>{{ $u->created_at?->format('Y/m/d') }}</td>
                         <td class="text-right">

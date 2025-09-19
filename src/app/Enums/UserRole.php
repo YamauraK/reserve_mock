@@ -4,8 +4,8 @@ namespace App\Enums;
 
 final class UserRole
 {
-    public const HQ = 1; // 本店（全権）
-    public const STORE = 2; // 店舗（自店舗のみ等）
+    public const HQ = 'hq'; // 本店（全権）
+    public const STORE = 'store'; // 店舗（自店舗のみ等）
 
     public static function labels(): array
     {

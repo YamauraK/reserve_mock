@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\UserRole;
 use App\Http\Requests\StoreReservationRequest;
 use App\Models\Campaign;
 use App\Models\CampaignProductStore;
@@ -22,7 +23,7 @@ class ReservationController extends Controller
     {
         $user = $request->user();
         $query = Reservation::query()->with(['store', 'campaign'])
-            ->when($user && $user->role === 'store', fn($q) => $q->where('store_id', $user->store_id))
+            ->when($user && $user->role === UserRole::STORE, fn($q) => $q->where('store_id', $user->store_id))
             ->when($request->filled('store_id'), fn($q) => $q->where('store_id', $request->integer('store_id')))
             ->when($request->filled('campaign_id'), fn($q) => $q->where('campaign_id', $request->integer('campaign_id')))
             ->when($request->filled('q'), function ($q) use ($request) {
@@ -40,7 +41,7 @@ class ReservationController extends Controller
         $reservations = $query->paginate(20)->withQueryString();
 
         $storeOptions = Store::orderBy('name')
-            ->when($user && $user->role === 'store', fn($q) => $q->whereKey($user->store_id))
+            ->when($user && $user->role === UserRole::STORE, fn($q) => $q->whereKey($user->store_id))
             ->get();
 
         return view('reservations.index', [
@@ -55,14 +56,14 @@ class ReservationController extends Controller
     {
         $user = $request->user();
         $stores = Store::orderBy('name')
-            ->when($user && $user->role === 'store', fn($q) => $q->whereKey($user->store_id))
+            ->when($user && $user->role === UserRole::STORE, fn($q) => $q->whereKey($user->store_id))
             ->get();
 
         $defaultStoreId = $user?->store_id ?? $stores->first()?->id;
 
         $products = Product::with('stores:id')
             ->where('is_active', true)
-            ->when($user && $user->role === 'store' && $user->store_id, fn($q) => $q->availableForStore($user->store_id))
+            ->when($user && $user->role === UserRole::STORE && $user->store_id, fn($q) => $q->availableForStore($user->store_id))
             ->orderBy('name')
             ->get();
 
