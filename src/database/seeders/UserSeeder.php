@@ -30,7 +30,7 @@ class UserSeeder extends Seeder
             ['email' => 'hq@example.com'],
             [
                 'name' => 'HQ 管理者',
-                'password' => Hash::make('password'),
+                'password' => 'password',
                 'role' => UserRole::HQ,
                 'store_id' => null,
             ]
@@ -40,7 +40,7 @@ class UserSeeder extends Seeder
             ['email' => 'store@example.com'],
             [
                 'name' => '本店スタッフ',
-                'password' => Hash::make('password'),
+                'password' =>'password',
                 'role' => UserRole::STORE,
                 'store_id' => $honten->id,
             ]
