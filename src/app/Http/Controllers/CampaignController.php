@@ -28,12 +28,15 @@ class CampaignController extends Controller
      */
     public function create()
     {
+        $storeProductSelections = [];
+        $selectionData = $this->prepareStoreSelectionData($storeProductSelections);
+
         return view('masters.campaigns.form', [
             'campaign' => new Campaign(),
-            'stores' => Store::orderBy('name')->get(['id', 'name']),
-            'products' => Product::orderBy('name')->get(['id', 'name']),
+            'stores' => $selectionData['stores'],
+            'storeProductOptions' => $selectionData['storeProductOptions'],
             'selectedStoreIds' => [],
-            'storeProductSelections' => [],
+            'storeProductSelections' => $storeProductSelections,
         ]);
     }
 
@@ -88,10 +91,12 @@ class CampaignController extends Controller
             ->map(fn($rows) => $rows->pluck('product_id')->all())
             ->toArray();
 
+        $selectionData = $this->prepareStoreSelectionData($storeProductSelections);
+
         return view('masters.campaigns.form', [
             'campaign' => $campaign,
-            'stores' => Store::orderBy('name')->get(['id', 'name']),
-            'products' => Product::orderBy('name')->get(['id', 'name']),
+            'stores' => $selectionData['stores'],
+            'storeProductOptions' => $selectionData['storeProductOptions'],
             'selectedStoreIds' => array_keys($storeProductSelections),
             'storeProductSelections' => $storeProductSelections,
         ]);
@@ -237,5 +242,64 @@ class CampaignController extends Controller
 
             $campaign->productStores()->createMany($records);
         }
+    }
+
+    /**
+     * @param  array<int,array<int,int>>  $storeProductSelections
+     * @return array{stores: \Illuminate\Support\Collection<int,\App\Models\Store>, storeProductOptions: array<int,array<int,array{id:int,name:string}>>>}
+     */
+    private function prepareStoreSelectionData(array $storeProductSelections): array
+    {
+        $stores = Store::with(['products' => fn($query) => $query->orderBy('name')])
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        $commonProducts = Product::query()
+            ->where('is_all_store', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        $selectedProductIds = collect($storeProductSelections)
+            ->flatten()
+            ->filter()
+            ->unique()
+            ->values();
+
+        $selectedProducts = $selectedProductIds->isEmpty()
+            ? collect()
+            : Product::whereIn('id', $selectedProductIds)->get(['id', 'name']);
+
+        $selectedProductsById = $selectedProducts->keyBy('id');
+
+        $storeProductOptions = $stores->mapWithKeys(function (Store $store) use (
+            $commonProducts,
+            $selectedProductsById,
+            $storeProductSelections
+        ) {
+            $selectedForStore = collect($storeProductSelections[$store->id] ?? [])
+                ->map(fn($id) => $selectedProductsById->get($id))
+                ->filter();
+
+            $availableProducts = $commonProducts
+                ->concat($store->products)
+                ->concat($selectedForStore)
+                ->unique('id')
+                ->sortBy('name')
+                ->values();
+
+            $options = $availableProducts
+                ->map(fn(Product $product) => [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                ])
+                ->all();
+
+            return [$store->id => $options];
+        })->all();
+
+        return [
+            'stores' => $stores,
+            'storeProductOptions' => $storeProductOptions,
+        ];
     }
 }
