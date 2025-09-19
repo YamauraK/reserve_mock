@@ -31,6 +31,9 @@ Route::middleware('auth')->group(function () {
 
     // マスタ管理
     Route::resource('campaigns', \App\Http\Controllers\CampaignController::class)->except(['show']);
+    Route::post('campaigns/{campaign}/products', [\App\Http\Controllers\CampaignProductStoreController::class, 'store'])->name('campaigns.products.store');
+    Route::put('campaigns/{campaign}/products/{productStore}', [\App\Http\Controllers\CampaignProductStoreController::class, 'update'])->name('campaigns.products.update');
+    Route::delete('campaigns/{campaign}/products/{productStore}', [\App\Http\Controllers\CampaignProductStoreController::class, 'destroy'])->name('campaigns.products.destroy');
     Route::resource('products', \App\Http\Controllers\ProductController::class)->except(['show']);
     Route::resource('stores', \App\Http\Controllers\StoreController::class)->except(['show']);
 

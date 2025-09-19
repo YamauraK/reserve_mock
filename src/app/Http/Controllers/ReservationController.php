@@ -59,7 +59,35 @@ class ReservationController extends Controller
             ->when($user && $user->role === UserRole::STORE, fn($q) => $q->whereKey($user->store_id))
             ->get();
 
-        $defaultStoreId = $user?->store_id ?? $stores->first()?->id;
+        $campaigns = Campaign::where('is_active', true)
+            ->with('stores:id,name')
+            ->orderBy('start_date', 'desc')
+            ->get();
+
+        $campaignStoreMap = $campaigns->mapWithKeys(fn($campaign) => [
+            $campaign->id => $campaign->stores->pluck('id')->all(),
+        ])->toArray();
+
+        $campaignProductMap = CampaignProductStore::where('is_available', true)
+            ->get(['campaign_id', 'store_id', 'product_id'])
+            ->groupBy('campaign_id')
+            ->map(fn($byCampaign) => $byCampaign->groupBy('store_id')
+                ->map(fn($rows) => $rows->pluck('product_id')->unique()->values()->all())
+                ->toArray()
+            )->toArray();
+
+        $availableStoreIds = $stores->pluck('id')->all();
+        $defaultStoreId = $user?->store_id;
+        if ($defaultStoreId && !in_array($defaultStoreId, $availableStoreIds, true)) {
+            $defaultStoreId = null;
+        }
+
+        if (!$defaultStoreId && $campaigns->isNotEmpty()) {
+            $firstCampaignStores = array_values(array_intersect($campaigns->first()->stores->pluck('id')->all(), $availableStoreIds));
+            $defaultStoreId = $firstCampaignStores[0] ?? null;
+        }
+
+        $defaultStoreId ??= $stores->first()?->id;
 
         $products = Product::with('stores:id')
             ->where('is_active', true)
@@ -69,9 +97,11 @@ class ReservationController extends Controller
 
         return view('reservations.create', [
             'stores' => $stores,
-            'campaigns' => Campaign::where('is_active', true)->orderBy('start_date', 'desc')->get(),
+            'campaigns' => $campaigns,
             'products' => $products,
             'defaultStoreId' => $defaultStoreId,
+            'campaignStoreMap' => $campaignStoreMap,
+            'campaignProductMap' => $campaignProductMap,
         ]);
     }
 
@@ -88,6 +118,7 @@ class ReservationController extends Controller
         $validated = $request->validated();
         $items = collect($validated['items']);
         $storeId = (int)$validated['store_id'];
+        $campaignId = (int)$validated['campaign_id'];
         $productMap = Product::whereIn('id', $items->pluck('product_id')->unique())
             ->availableForStore($storeId)
             ->get()
@@ -129,20 +160,22 @@ class ReservationController extends Controller
 
                 // 残数: planned - reserved を超えないかチェック
                 $cps = CampaignProductStore::where([
-                    'campaign_id' => $reservation->campaign_id,
+                    'campaign_id' => $campaignId,
                     'product_id' => $product->id,
-                    'store_id' => $reservation->store_id,
+                    'store_id' => $storeId,
                 ])->lockForUpdate()->first();
 
-
-                if ($cps) {
-                    $remaining = max(0, $cps->planned_quantity - $cps->reserved_quantity);
-                    if ($qty > $remaining) {
-                        $alerts[] = "『{$product->name}』は残数{$remaining}を超えています（申込数量: {$qty}）。";
-                    }
-                    // 予約に反映（モック：超過しても登録、ただし警告表示）
-                    $cps->increment('reserved_quantity', $qty);
+                if (!$cps || !$cps->is_available) {
+                    throw new \RuntimeException('選択された商品はこの企画では利用できません。');
                 }
+
+
+                $remaining = max(0, $cps->planned_quantity - $cps->reserved_quantity);
+                if ($qty > $remaining) {
+                    $alerts[] = "『{$product->name}』は残数{$remaining}を超えています（申込数量: {$qty}）。";
+                }
+                // 予約に反映（モック：超過しても登録、ただし警告表示）
+                $cps->increment('reserved_quantity', $qty);
 
 
                 ReservationItem::create([
@@ -179,6 +212,16 @@ class ReservationController extends Controller
         $lines   = [];
         $totOrig = $totDisc = $totFinal = 0;
 
+        $campaignProducts = CampaignProductStore::where('campaign_id', $data['campaign_id'])
+            ->where('store_id', $data['store_id'])
+            ->where('is_available', true)
+            ->get()
+            ->keyBy('product_id');
+
+        if ($campaignProducts->isEmpty()) {
+            return response()->json(['message' => '選択された商品はこの企画では利用できません。'], 422);
+        }
+
         $availableProducts = Product::whereIn('id', collect($data['items'])->pluck('product_id')->unique())
             ->availableForStore((int)$data['store_id'])
             ->get()
@@ -188,6 +231,11 @@ class ReservationController extends Controller
             $product   = $availableProducts->get($line['product_id']);
             if (!$product) {
                 return response()->json(['message' => '選択された商品はこの店舗では利用できません。'], 422);
+            }
+
+            $cps = $campaignProducts->get($product->id);
+            if (!$cps) {
+                return response()->json(['message' => '選択された商品はこの企画では利用できません。'], 422);
             }
             $qty       = (int)$line['quantity'];
             $unitPrice = (int)$product->price;

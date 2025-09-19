@@ -11,12 +11,17 @@
             <div class="form-section-title">基本情報</div>
         </div>
 
+        @php
+            $selectedCampaignId = old('campaign_id', $campaigns->first()->id ?? null);
+            $selectedStoreId = old('store_id', $defaultStoreId);
+        @endphp
+
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="field">
                 <label class="label">企画 <span class="required">必須</span></label>
                 <select name="campaign_id" class="select" required>
                     @foreach($campaigns as $c)
-                        <option value="{{ $c->id }}">{{ $c->name }}</option>
+                        <option value="{{ $c->id }}" @selected($selectedCampaignId == $c->id)>{{ $c->name }}</option>
                     @endforeach
                 </select>
             </div>
@@ -24,7 +29,7 @@
                 <label class="label">店舗 <span class="required">必須</span></label>
                 <select name="store_id" class="select" required>
                     @foreach($stores as $s)
-                        <option value="{{ $s->id }}" @selected(old('store_id', $defaultStoreId)==$s->id)>{{ $s->name }}</option>
+                        <option value="{{ $s->id }}" @selected($selectedStoreId == $s->id)>{{ $s->name }}</option>
                     @endforeach
                 </select>
             </div>
@@ -119,6 +124,7 @@
                 <div class="text-sm text-gray-500">選択できる商品がありません。先に商品マスタを設定してください。</div>
             @endif
         </div>
+        <div class="text-sm text-red-600 hidden" id="jsNoCampaignProducts">選択した企画・店舗では商品が設定されていません。</div>
 
         {{-- 合計（任意） --}}
         <div class="total-box">
@@ -177,22 +183,44 @@
             const discTotalEl = document.getElementById('jsDiscountTotal');
             const finalTotalEl= document.getElementById('jsFinalTotal');
             const noteEl      = document.getElementById('jsDiscountNote');
+            const noProductMsg= document.getElementById('jsNoCampaignProducts');
+
+            const campaignStoreMap = @json($campaignStoreMap);
+            const campaignProductMap = @json($campaignProductMap);
 
             function filterProducts(){
                 const storeId = selStore?.value || '';
+                const campaignId = selCampaign?.value || '';
+                const campaignEntry = campaignProductMap[campaignId] || {};
+                const hasRestriction = Object.prototype.hasOwnProperty.call(campaignEntry, storeId);
+                const allowedProducts = hasRestriction ? campaignEntry[storeId] : [];
+                const allowedSet = hasRestriction && Array.isArray(allowedProducts)
+                    ? new Set(allowedProducts.map(String))
+                    : null;
+                let visibleCount = 0;
+
                 document.querySelectorAll('.product-block').forEach(block => {
                     const isGlobal = block.dataset.global === '1';
                     const stores = (block.dataset.stores || '').split(',').filter(Boolean);
-                    const available = isGlobal || (storeId && stores.includes(storeId));
+                    const baseAvailable = isGlobal || (storeId && stores.includes(storeId));
 
                     const qtyInput = block.querySelector('.qty-input');
                     const hiddenInput = block.querySelector('input[type="hidden"][name$="[product_id]"]');
                     const discRow = block.querySelector('.disc-row');
+                    const productId = block.dataset.product || '';
 
-                    if (available) {
+                    let show = baseAvailable;
+                    if (show && allowedSet !== null) {
+                        show = allowedSet.has(productId);
+                    } else if (show && hasRestriction === false && campaignId && storeId) {
+                        show = false;
+                    }
+
+                    if (show) {
                         block.classList.remove('hidden');
                         if (qtyInput) qtyInput.disabled = false;
                         if (hiddenInput) hiddenInput.disabled = false;
+                        visibleCount++;
                     } else {
                         block.classList.add('hidden');
                         if (qtyInput) {
@@ -209,6 +237,47 @@
                 });
 
                 window.calcTotal();
+
+                if (noProductMsg) {
+                    if (visibleCount === 0) {
+                        noProductMsg.classList.remove('hidden');
+                    } else {
+                        noProductMsg.classList.add('hidden');
+                    }
+                }
+            }
+
+            function filterStores(){
+                if (!selStore || !selCampaign) {
+                    return;
+                }
+                const campaignId = selCampaign.value || '';
+                const allowed = campaignStoreMap[campaignId] || [];
+                let firstVisible = null;
+
+                Array.from(selStore.options).forEach(option => {
+                    if (!option.value) {
+                        return;
+                    }
+                    const optionId = Number(option.value);
+                    const show = allowed.length === 0 || allowed.includes(optionId);
+                    option.hidden = !show;
+                    option.disabled = !show;
+                    if (!show && option.selected) {
+                        option.selected = false;
+                    }
+                    if (show && firstVisible === null) {
+                        firstVisible = option.value;
+                    }
+                });
+
+                if (!selStore.value && firstVisible !== null) {
+                    selStore.value = firstVisible;
+                }
+
+                if (selStore.value && !((allowed.length === 0) || allowed.includes(Number(selStore.value)))) {
+                    selStore.value = firstVisible || '';
+                }
             }
 
             async function preview(){
@@ -305,10 +374,22 @@
                 }, true);
             });
 
-            if(selStore){
-                selStore.addEventListener('change', filterProducts);
+            if(selCampaign){
+                selCampaign.addEventListener('change', () => {
+                    filterStores();
+                    filterProducts();
+                    preview();
+                });
             }
 
+            if(selStore){
+                selStore.addEventListener('change', () => {
+                    filterProducts();
+                    preview();
+                });
+            }
+
+            filterStores();
             filterProducts();
             // 初期計算
             preview();

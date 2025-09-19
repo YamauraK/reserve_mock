@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Campaign;
+use App\Models\CampaignProductStore;
 use App\Models\Product;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
@@ -76,6 +78,37 @@ class StoreReservationRequest extends FormRequest
             $diff = array_diff($productIds, $availableIds);
             if (!empty($diff)) {
                 $validator->errors()->add('items', '選択された商品はこの店舗では利用できません。');
+                return;
+            }
+
+            $campaignId = (int)$this->input('campaign_id');
+            if (!$campaignId) {
+                return;
+            }
+
+            $isParticipating = Campaign::whereKey($campaignId)
+                ->whereHas('stores', fn($q) => $q->where('stores.id', $storeId))
+                ->exists();
+
+            if (!$isParticipating) {
+                $validator->errors()->add('store_id', '選択した店舗はこの企画に参加していません。');
+                return;
+            }
+
+            $campaignProductIds = CampaignProductStore::where('campaign_id', $campaignId)
+                ->where('store_id', $storeId)
+                ->where('is_available', true)
+                ->pluck('product_id')
+                ->all();
+
+            if (empty($campaignProductIds)) {
+                $validator->errors()->add('items', 'この企画では選択できる商品が設定されていません。');
+                return;
+            }
+
+            $diffCampaign = array_diff($productIds, $campaignProductIds);
+            if (!empty($diffCampaign)) {
+                $validator->errors()->add('items', '選択された商品はこの企画では利用できません。');
             }
         }];
     }

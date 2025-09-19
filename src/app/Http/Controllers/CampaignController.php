@@ -3,7 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Campaign;
+use App\Models\CampaignProductStore;
+use App\Models\Product;
+use App\Models\Store;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class CampaignController extends Controller
 {
@@ -21,7 +25,13 @@ class CampaignController extends Controller
      */
     public function create()
     {
-        return view('masters.campaigns.form', ['campaign' => new Campaign]);
+        return view('masters.campaigns.form', [
+            'campaign' => new Campaign(['is_active' => true]),
+            'stores' => Store::orderBy('name')->get(),
+            'selectedStoreIds' => [],
+            'productOptions' => Product::orderBy('name')->where('is_active', true)->get(),
+            'productStores' => collect(),
+        ]);
     }
 
     /**
@@ -35,8 +45,16 @@ class CampaignController extends Controller
             'start_date'=>['nullable','date'],
             'end_date'=>['nullable','date','after_or_equal:start_date'],
             'is_active'=>['required','boolean'],
+            'store_ids' => ['required', 'array', 'min:1'],
+            'store_ids.*' => ['integer', Rule::exists('stores', 'id')],
         ]);
-        Campaign::create($data);
+
+        $storeIds = collect($data['store_ids'])->unique()->all();
+        unset($data['store_ids']);
+
+        $campaign = Campaign::create($data);
+        $campaign->stores()->sync($storeIds);
+
         return redirect()->route('campaigns.index')->with('status','企画を作成しました');
     }
 
@@ -53,7 +71,19 @@ class CampaignController extends Controller
      */
     public function edit(Campaign $campaign)
     {
-        return view('masters.campaigns.form', compact('campaign'));
+        $campaign->load(['stores:id']);
+
+        return view('masters.campaigns.form', [
+            'campaign' => $campaign,
+            'stores' => Store::orderBy('name')->get(),
+            'selectedStoreIds' => $campaign->stores->pluck('id')->all(),
+            'productOptions' => Product::orderBy('name')->where('is_active', true)->get(),
+            'productStores' => CampaignProductStore::with(['store','product'])
+                ->where('campaign_id', $campaign->id)
+                ->orderBy('store_id')
+                ->orderBy('product_id')
+                ->get(),
+        ]);
     }
 
     /**
@@ -67,8 +97,20 @@ class CampaignController extends Controller
             'start_date'=>['nullable','date'],
             'end_date'=>['nullable','date','after_or_equal:start_date'],
             'is_active'=>['required','boolean'],
+            'store_ids' => ['required', 'array', 'min:1'],
+            'store_ids.*' => ['integer', Rule::exists('stores', 'id')],
         ]);
+
+        $storeIds = collect($data['store_ids'])->unique()->all();
+        unset($data['store_ids']);
+
         $campaign->update($data);
+        $campaign->stores()->sync($storeIds);
+
+        CampaignProductStore::where('campaign_id', $campaign->id)
+            ->whereNotIn('store_id', $storeIds)
+            ->delete();
+
         return redirect()->route('campaigns.index')->with('status','企画を更新しました');
     }
 

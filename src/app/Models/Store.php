@@ -23,4 +23,9 @@ class Store extends Model
     {
         return $this->belongsToMany(Product::class)->withTimestamps();
     }
+
+    public function campaigns(): BelongsToMany
+    {
+        return $this->belongsToMany(Campaign::class, 'campaign_store')->withTimestamps();
+    }
 }
