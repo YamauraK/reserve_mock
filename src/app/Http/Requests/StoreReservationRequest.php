@@ -32,7 +32,7 @@ class StoreReservationRequest extends FormRequest
         return [
             'campaign_id' => ['required', 'exists:campaigns,id'],
             'store_id' => ['required', 'exists:stores,id'],
-            'channel' => ['required', 'in:store,tokushimaru'],
+            'channel' => ['required', 'in:store,tokushimaru,web'],
             'customer_name' => ['required', 'string', 'max:100'],
             'phone' => ['required', 'string', 'max:20'],
             'zip' => ['nullable', 'string', 'max:10'],
