@@ -6,6 +6,40 @@
     <form method="post" action="{{ route('reservations.store') }}" class="form-card space-y-6">
         @csrf
 
+        @if (session('status'))
+            <div class="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 mb-2">
+                {{ session('status') }}
+            </div>
+        @endif
+        @if (session('error'))
+            <div class="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-2">
+                {{ session('error') }}
+            </div>
+        @endif
+        {{-- 既存の $errors サマリー --}}
+        @if ($errors->any())
+            <div class="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <div class="font-semibold mb-1">入力内容にエラーがあります。</div>
+                <ul class="list-disc pl-5 space-y-0.5">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
+
+    @if ($errors->any())
+            <div class="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <div class="font-semibold mb-1">入力内容にエラーがあります。</div>
+                <ul class="list-disc pl-5 space-y-0.5">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         {{-- セクション：基本情報 --}}
         <div class="form-section">
             <div class="form-section-title">基本情報</div>
@@ -14,11 +48,14 @@
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="field">
                 <label class="label">企画 <span class="required">必須</span></label>
-                <select name="campaign_id" class="select" required>
+                <select name="campaign_id" class="select @error('campaign_id') border-red-500 @enderror" required>
                     @foreach($campaigns as $c)
-                        <option value="{{ $c->id }}">{{ $c->name }}</option>
+                        <option value="{{ $c->id }}" @selected(old('campaign_id')==$c->id)>{{ $c->name }}</option>
                     @endforeach
                 </select>
+                @error('campaign_id')
+                    <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
+                @enderror
             </div>
             <div class="field">
                 <label class="label">店舗 <span class="required">必須</span></label>
@@ -46,7 +83,12 @@
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="field">
                 <label class="label">氏名 <span class="required">必須</span></label>
-                <input name="customer_name" class="input" required />
+                <input name="customer_name"
+                       value="{{ old('customer_name') }}"
+                       class="input @error('customer_name') border-red-500 @enderror" required />
+                @error('customer_name')
+                <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
+                @enderror
             </div>
             <div class="field">
                 <label class="label">フリガナ</label>
@@ -54,7 +96,12 @@
             </div>
             <div class="field">
                 <label class="label">電話 <span class="required">必須</span></label>
-                <input name="phone" class="input" required />
+                <input name="phone"
+                       value="{{ old('phone') }}"
+                       class="input @error('phone') border-red-500 @enderror" required />
+                @error('phone')
+                <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
+                @enderror
             </div>
             <div class="field">
                 <label class="label">郵便番号</label>
@@ -89,6 +136,9 @@
             <div class="form-section-title">商品</div>
         </div>
 
+        @error('items')
+        <div class="text-sm text-red-600 mb-2">{{ $message }}</div>
+        @enderror
         <div class="product-list" id="jsProductList">
             @foreach($products as $p)
                 <div class="product-block" data-product="{{ $p->id }}" data-global="{{ $p->is_all_store ? '1':'0' }}" data-stores="{{ $p->stores->pluck('id')->implode(',') }}">
@@ -104,12 +154,21 @@
                         </div>
                         <div class="product-qty">
                             <label class="text-sm text-gray-500">数量</label>
-                            <input type="number" name="items[{{ $loop->index }}][quantity]" min="0" value="0"
-                                   class="input qty-input"
+                            <input type="number"
+                                   name="items[{{ $loop->index }}][quantity]"
+                                   min="0"
+                                   value="{{ old("items.$loop->index.quantity", 0) }}"
+                                   class="input qty-input @error("items.$loop->index.quantity") border-red-500 @enderror"
                                    data-price="{{ $p->price }}"
                                    oninput="window.calcTotal && window.calcTotal()">
                             <input type="hidden" name="items[{{ $loop->index }}][product_id]" value="{{ $p->id }}" />
                         </div>
+                        @error("items.$loop->index.quantity")
+                        <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
+                        @enderror
+                        @error("items.$loop->index.product_id")
+                        <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
+                        @enderror
                     </div>
                     <div class="text-xs text-emerald-700 mt-1 hidden disc-row" data-product="{{ $p->id }}">
                         <span data-role="disc-label">早割</span>：-¥<span data-role="disc-line">0</span>
@@ -149,7 +208,7 @@
         {{-- アクション --}}
         <div class="form-actions">
             <a href="{{ route('reservations.index') }}" class="btn">戻る</a>
-            <button class="btn btn-primary">登録</button>
+            <button type="submit" class="btn btn-primary">登録する</button>
         </div>
     </form>
 

@@ -5,6 +5,8 @@ namespace App\Http\Requests;
 use App\Models\Product;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
+use Illuminate\Contracts\Validation\Validator as ValidationValidator;
+use Illuminate\Validation\ValidationException;
 
 class StoreReservationRequest extends FormRequest
 {

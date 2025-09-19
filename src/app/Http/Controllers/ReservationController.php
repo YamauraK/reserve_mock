@@ -15,6 +15,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class ReservationController extends Controller
 {
@@ -83,80 +85,176 @@ class ReservationController extends Controller
     }
 
     // 登録
-    public function store(StoreReservationRequest $request)
+    public function store(Request $request)
     {
-        $validated = $request->validated();
-        $items = collect($validated['items']);
-        $storeId = (int)$validated['store_id'];
-        $productMap = Product::whereIn('id', $items->pluck('product_id')->unique())
-            ->availableForStore($storeId)
-            ->get()
-            ->keyBy('id');
+        // --- 数量0行を除去（FormRequestのprepareForValidation相当） ---
+        $items = collect($request->input('items', []))
+            ->filter(fn($item) => (int)($item['quantity'] ?? 0) > 0)
+            ->map(fn($item) => [
+                'product_id' => (int)($item['product_id'] ?? 0),
+                'quantity'   => (int)($item['quantity'] ?? 0),
+            ])
+            ->values()
+            ->all();
+        $request->merge(['items' => $items]);
+        Log::info('itemsをコレクトした後');
 
+        // --- ルール ---
+        $rules = [
+            'campaign_id'      => ['required','integer','exists:campaigns,id'],
+            'store_id'         => ['required','integer','exists:stores,id'],
+            'channel'          => ['required', Rule::in(['store','tokushimaru','web'])],
+            'customer_name'    => ['required','string','max:100'],
+            'customer_kana'    => ['nullable','string','max:100'],
+            'phone'            => ['required','string','max:20'],
+            'zip'              => ['nullable','string','max:10'],
+            'address1'         => ['nullable','string','max:255'],
+            'address2'         => ['nullable','string','max:255'],
+            'pickup_date'      => ['nullable','date'],
+            'pickup_time_slot' => ['nullable','string','max:50'],
+            'notes'            => ['nullable','string','max:1000'],
+            'items'                => ['required','array','min:1'],
+            'items.*.product_id'   => ['required','integer','min:1'],
+            'items.*.quantity'     => ['required','integer','min:1'],
+        ];
+        $messages = [
+            'items.required'       => '商品を1点以上選択してください。',
+            'items.min'            => '商品を1点以上選択してください。',
+            'items.*.quantity.min' => '数量は1以上で入力してください。',
+        ];
 
-// 金額計算＆在庫（残数）チェック
-        $total = 0;
-        $alerts = [];
+        Log::info('$validator前');
+        $validator = Validator::make($request->all(), $rules, $messages);
+        Log::info('$validatorの後');
 
-        DB::transaction(function () use ($validated, $items, $productMap, &$total, &$alerts) {
-            $reservation = Reservation::create([
-                'campaign_id' => $validated['campaign_id'],
-                'store_id' => $validated['store_id'],
-                'channel' => $validated['channel'],
-                'customer_name' => $validated['customer_name'],
-                'customer_kana' => $validated['customer_kana'] ?? null,
-                'phone' => $validated['phone'],
-                'zip' => $validated['zip'] ?? null,
-                'address1' => $validated['address1'] ?? null,
-                'address2' => $validated['address2'] ?? null,
-                'pickup_date' => $validated['pickup_date'] ?? null,
-                'pickup_time_slot' => $validated['pickup_time_slot'] ?? null,
-                'total_amount' => 0,
-                'status' => 'confirmed',
-                'notes' => $validated['notes'] ?? null,
-            ]);
+        // --- 追加検証（商品存在・店舗適用可否） ---
+        $validator->after(function ($v) use ($request) {
+            Log::info('X');
+            if ($v->errors()->isNotEmpty()) return;
 
+            Log::info('A');
+            $storeId = (int)$request->input('store_id');
+            $items   = collect($request->input('items', []));
+            if (!$storeId || $items->isEmpty()) return;
 
-            foreach ($items as $row) {
-                $product = $productMap->get($row['product_id']);
-                if (!$product) {
-                    throw new \RuntimeException('選択された商品はこの店舗では利用できません。');
-                }
-                $qty = (int)$row['quantity'];
-                $subtotal = $product->price * $qty;
-                $total += $subtotal;
+            Log::info('B');
+            $productIds = $items->pluck('product_id')->unique()->filter()->all();
+            if (empty($productIds)) return;
 
-
-                // 残数: planned - reserved を超えないかチェック
-                $cps = CampaignProductStore::where([
-                    'campaign_id' => $reservation->campaign_id,
-                    'product_id' => $product->id,
-                    'store_id' => $reservation->store_id,
-                ])->lockForUpdate()->first();
-
-
-                if ($cps) {
-                    $remaining = max(0, $cps->planned_quantity - $cps->reserved_quantity);
-                    if ($qty > $remaining) {
-                        $alerts[] = "『{$product->name}』は残数{$remaining}を超えています（申込数量: {$qty}）。";
-                    }
-                    // 予約に反映（モック：超過しても登録、ただし警告表示）
-                    $cps->increment('reserved_quantity', $qty);
-                }
-
-
-                ReservationItem::create([
-                    'reservation_id' => $reservation->id,
-                    'product_id' => $product->id,
-                    'unit_price' => $product->price,
-                    'quantity' => $qty,
-                    'subtotal' => $subtotal,
-                ]);
+            Log::info('C');
+            $existingIds = Product::whereIn('id', $productIds)->pluck('id')->all();
+            $missingIds  = array_diff($productIds, $existingIds);
+            if (!empty($missingIds)) {
+                $v->errors()->add('items', '選択された商品が存在しません。');
+                return;
             }
 
+            Log::info('D');
+            $availableIds = Product::whereIn('id', $productIds)
+                ->availableForStore($storeId)
+                ->pluck('id')->all();
 
-            $reservation->update(['total_amount' => $total]);
+            $diff = array_diff($productIds, $availableIds);
+            Log::info('E');
+            if (!empty($diff)) {
+                $v->errors()->add('items', '選択された商品はこの店舗では利用できません。');
+            }
         });
+        Log::info('$validatorアフターの後');
+
+        if ($validator->fails()) {
+            Log::info('$validatorがfails');
+            // ここに来れば必ず画面上部＆各フィールドにエラーが出る（Bladeに@error済）
+            return back()->withErrors($validator)->withInput();
+        }
+
+        Log::info('$validatedの前');
+        $validated  = $validator->validated();
+        Log::info('$itemsColの前');
+        $itemsCol   = collect($validated['items']);
+        Log::info('$storeIdの前');
+        $storeId    = (int)$validated['store_id'];
+        Log::info('$productMapの前');
+        $productMap = Product::whereIn('id', $itemsCol->pluck('product_id')->unique())
+            ->availableForStore($storeId)
+            ->get()->keyBy('id');
+        Log::info('try前');
+
+        $total  = 0;
+        $alerts = [];
+
+        try {
+            Log::info('A: before tx');
+            DB::transaction(function () use ($validated, $itemsCol, $productMap, &$total, &$alerts) {
+                Log::info('B: in tx - before create reservation');
+                $reservation = Reservation::create([
+                    'campaign_id'      => $validated['campaign_id'],
+                    'store_id'         => $validated['store_id'],
+                    'channel'          => $validated['channel'],
+                    'customer_name'    => $validated['customer_name'],
+                    'customer_kana'    => $validated['customer_kana'] ?? null,
+                    'phone'            => $validated['phone'],
+                    'zip'              => $validated['zip'] ?? null,
+                    'address1'         => $validated['address1'] ?? null,
+                    'address2'         => $validated['address2'] ?? null,
+                    'pickup_date'      => $validated['pickup_date'] ?? null,
+                    'pickup_time_slot' => $validated['pickup_time_slot'] ?? null,
+                    'total_amount'     => 0,
+                    'status'           => 'confirmed',
+                    'notes'            => $validated['notes'] ?? null,
+                ]);
+
+                foreach ($itemsCol as $row) {
+                    Log::info('C: loop start', $row);
+                    $product = $productMap->get($row['product_id']);
+                    Log::info('D: got product', ['id' => $product?->id]);
+                    if (!$product) {
+                        // ここで throw すると 500 になって画面が変わらない印象になるので、
+                        // 例外は上位で捕捉しフラッシュ表示する。
+                        throw new \RuntimeException('選択された商品はこの店舗では利用できません。');
+                    }
+                    $qty = (int)$row['quantity'];
+                    $subtotal = $product->price * $qty;
+                    $total += $subtotal;
+
+                    // 残数チェック
+                    Log::info('E: before CPS select-for-update');
+                    $cps = CampaignProductStore::where([
+                        'campaign_id' => $reservation->campaign_id,
+                        'product_id'  => $product->id,
+                        'store_id'    => $reservation->store_id,
+                    ])->lockForUpdate()->first();
+                    Log::info('F: after CPS select', ['exists' => (bool)$cps]);
+
+                    if ($cps) {
+                        $remaining = max(0, $cps->planned_quantity - $cps->reserved_quantity);
+                        if ($qty > $remaining) {
+                            $alerts[] = "『{$product->name}』は残数{$remaining}を超えています（申込数量: {$qty}）。";
+                        }
+                        $cps->increment('reserved_quantity', $qty);
+                    }
+
+                    ReservationItem::create([
+                        'reservation_id' => $reservation->id,
+                        'product_id'     => $product->id,
+                        'unit_price'     => $product->price,
+                        'quantity'       => $qty,
+                        'subtotal'       => $subtotal,
+                    ]);
+                }
+                Log::info('Z: before commit');
+
+                $reservation->update(['total_amount' => $total]);
+            });
+            Log::info('Z2: after tx');
+        } catch (\Throwable $e) {
+            // 例外はここで握りつぶさず、ユーザーに表示して戻す
+            Log::error('TX ERROR: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            report($e);
+            return back()
+                ->withInput()
+                ->with('error', '登録処理でエラーが発生しました：'.$e->getMessage());
+        }
 
         return redirect()
             ->route('reservations.index')
