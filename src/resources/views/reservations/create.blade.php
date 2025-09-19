@@ -33,6 +33,7 @@
                 <select name="channel" class="select">
                     <option value="store">店頭</option>
                     <option value="tokushimaru">とくし丸</option>
+                    <option value="web">Web</option>
                 </select>
             </div>
         </div>

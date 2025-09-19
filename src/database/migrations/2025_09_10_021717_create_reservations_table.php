@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('campaign_id')->constrained()->cascadeOnDelete();
             $table->foreignId('store_id')->constrained()->cascadeOnDelete();
-            $table->enum('channel', ['store', 'tokushimaru'])->default('store'); // 受付チャネル
+            $table->enum('channel', ['store', 'tokushimaru', 'web'])->default('store'); // 受付チャネル
 // 顧客情報（Phase1：従業員入力）
             $table->string('customer_name');
             $table->string('customer_kana')->nullable();
