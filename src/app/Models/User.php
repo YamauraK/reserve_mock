@@ -48,14 +48,6 @@ class User extends Authenticatable
         return $this->belongsTo(Store::class);
     }
 
-    // パスワードの自動ハッシュ（任意：あれば便利）
-    public function setPasswordAttribute($value): void
-    {
-        if ($value) {
-            $this->attributes['password'] = Hash::make($value);
-        }
-    }
-
     /**
      * Get the attributes that should be cast.
      *
