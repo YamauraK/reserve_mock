@@ -16,21 +16,46 @@ class CampaignProductStoreSeeder extends Seeder
      */
     public function run(): void
     {
-        $osechi = Campaign::where('name','おせち2025')->first();
-        $ehomaki = Campaign::where('name','恵方巻2026')->first();
+        $definitions = [
+            'OC-001' => [
+                'campaign' => 'おせち2025',
+                'planned' => 60,
+            ],
+            'OC-002' => [
+                'campaign' => 'おせち2025',
+                'planned' => 45,
+            ],
+            'EH-001' => [
+                'campaign' => '恵方巻2026',
+                'planned' => 80,
+            ],
+        ];
+
+        $campaigns = Campaign::whereIn('name', collect($definitions)->pluck('campaign')->unique())->get()->keyBy('name');
+        $products = Product::whereIn('sku', array_keys($definitions))->get()->keyBy('sku');
         $stores = Store::all();
 
-        foreach ($stores as $s) {
-            foreach (Product::all() as $p) {
-                $campaign = str_starts_with($p->sku,'OC-') ? $osechi : $ehomaki;
-                CampaignProductStore::create([
-                    'campaign_id' => $campaign->id,
-                    'product_id'  => $p->id,
-                    'store_id'    => $s->id,
-                    'planned_quantity' => rand(20, 100),
-                    'reserved_quantity' => 0,
-                    'is_available' => true,
-                ]);
+        foreach ($stores as $store) {
+            foreach ($definitions as $sku => $config) {
+                $campaign = $campaigns->get($config['campaign']);
+                $product = $products->get($sku);
+
+                if (!$campaign || !$product) {
+                    throw new \RuntimeException('Seed prerequisite missing for campaign-product-store seeding.');
+                }
+
+                CampaignProductStore::updateOrCreate(
+                    [
+                        'campaign_id' => $campaign->id,
+                        'product_id' => $product->id,
+                        'store_id' => $store->id,
+                    ],
+                    [
+                        'planned_quantity' => $config['planned'],
+                        'reserved_quantity' => 0,
+                        'is_available' => true,
+                    ]
+                );
             }
         }
     }

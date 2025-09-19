@@ -17,12 +17,11 @@ class DatabaseSeeder extends Seeder
         // User::factory(10)->create();
 
         $this->call([
-//            StoreSeeder::class,
-//            CampaignSeeder::class,
-//            ProductSeeder::class,
-//            CampaignProductStoreSeeder::class,
+            StoreSeeder::class,
+            CampaignSeeder::class,
+            ProductSeeder::class,
+            CampaignProductStoreSeeder::class,
             UserSeeder::class,
-//            ReservationDemoSeeder::class,
         ]);
     }
 }
