@@ -171,7 +171,7 @@ class ReservationController extends Controller
             'store_id'    => ['required','exists:stores,id'],
             'channel'     => ['nullable', \Illuminate\Validation\Rule::in(['store','tokushimaru','web'])],
             'items'       => ['required','array','min:1'],
-            'items.*.product_id' => ['required','exists:products,id'],
+            'items.*.product_id' => ['required','integer','min:1'],
             'items.*.quantity'   => ['required','integer','min:1'],
         ]);
 
