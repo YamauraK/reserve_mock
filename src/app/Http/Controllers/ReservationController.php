@@ -39,9 +39,13 @@ class ReservationController extends Controller
 
         $reservations = $query->paginate(20)->withQueryString();
 
+        $storeOptions = Store::orderBy('name')
+            ->when($user && $user->role === 'store', fn($q) => $q->whereKey($user->store_id))
+            ->get();
+
         return view('reservations.index', [
             'reservations' => $reservations,
-            'stores' => Store::orderBy('name')->get(),
+            'stores' => $storeOptions,
             'campaigns' => Campaign::orderBy('start_date', 'desc')->get(),
         ]);
     }
@@ -50,11 +54,23 @@ class ReservationController extends Controller
     public function create(Request $request)
     {
         $user = $request->user();
+        $stores = Store::orderBy('name')
+            ->when($user && $user->role === 'store', fn($q) => $q->whereKey($user->store_id))
+            ->get();
+
+        $defaultStoreId = $user?->store_id ?? $stores->first()?->id;
+
+        $products = Product::with('stores:id')
+            ->where('is_active', true)
+            ->when($user && $user->role === 'store' && $user->store_id, fn($q) => $q->availableForStore($user->store_id))
+            ->orderBy('name')
+            ->get();
+
         return view('reservations.create', [
-            'stores' => Store::orderBy('name')->get(),
+            'stores' => $stores,
             'campaigns' => Campaign::where('is_active', true)->orderBy('start_date', 'desc')->get(),
-            'products' => Product::where('is_active', true)->orderBy('name')->get(),
-            'defaultStoreId' => $user?->store_id,
+            'products' => $products,
+            'defaultStoreId' => $defaultStoreId,
         ]);
     }
 
@@ -70,13 +86,18 @@ class ReservationController extends Controller
     {
         $validated = $request->validated();
         $items = collect($validated['items']);
+        $storeId = (int)$validated['store_id'];
+        $productMap = Product::whereIn('id', $items->pluck('product_id')->unique())
+            ->availableForStore($storeId)
+            ->get()
+            ->keyBy('id');
 
 
 // 金額計算＆在庫（残数）チェック
         $total = 0;
         $alerts = [];
 
-        DB::transaction(function () use ($validated, $items, &$total, &$alerts) {
+        DB::transaction(function () use ($validated, $items, $productMap, &$total, &$alerts) {
             $reservation = Reservation::create([
                 'campaign_id' => $validated['campaign_id'],
                 'store_id' => $validated['store_id'],
@@ -96,7 +117,10 @@ class ReservationController extends Controller
 
 
             foreach ($items as $row) {
-                $product = Product::findOrFail($row['product_id']);
+                $product = $productMap->get($row['product_id']);
+                if (!$product) {
+                    throw new \RuntimeException('選択された商品はこの店舗では利用できません。');
+                }
                 $qty = (int)$row['quantity'];
                 $subtotal = $product->price * $qty;
                 $total += $subtotal;
@@ -154,8 +178,16 @@ class ReservationController extends Controller
         $lines   = [];
         $totOrig = $totDisc = $totFinal = 0;
 
+        $availableProducts = Product::whereIn('id', collect($data['items'])->pluck('product_id')->unique())
+            ->availableForStore((int)$data['store_id'])
+            ->get()
+            ->keyBy('id');
+
         foreach ($data['items'] as $line) {
-            $product   = \App\Models\Product::select('id','price')->find($line['product_id']);
+            $product   = $availableProducts->get($line['product_id']);
+            if (!$product) {
+                return response()->json(['message' => '選択された商品はこの店舗では利用できません。'], 422);
+            }
             $qty       = (int)$line['quantity'];
             $unitPrice = (int)$product->price;
 
@@ -196,22 +228,27 @@ class ReservationController extends Controller
             $totFinal += $lineFinal;
         }
 
-        $rule = \App\Models\EarlyBirdDiscount::resolveOne(
-            (int)$data['campaign_id'],
-            (int)$product->id,
-            (int)$data['store_id'],
-            $channel,
-            now()
-        );
+        $rule = null;
+        if (isset($product)) {
+            $rule = \App\Models\EarlyBirdDiscount::resolveOne(
+                (int)$data['campaign_id'],
+                (int)$product->id,
+                (int)$data['store_id'],
+                $channel,
+                now()
+            );
+        }
 
-        Log::debug('EB resolve', [
-            'campaign_id'=>$data['campaign_id'],
-            'product_id' =>$product->id,
-            'store_id'   =>$data['store_id'],
-            'channel'    =>$channel,
-            'rule_id'    =>$rule?->id,
-            'rule_name'  =>$rule?->name,
-        ]);
+        if (isset($product)) {
+            Log::debug('EB resolve', [
+                'campaign_id'=>$data['campaign_id'],
+                'product_id' =>$product->id,
+                'store_id'   =>$data['store_id'],
+                'channel'    =>$channel,
+                'rule_id'    =>$rule?->id,
+                'rule_name'  =>$rule?->name,
+            ]);
+        }
 
         return response()->json([
             'lines'  => $lines,

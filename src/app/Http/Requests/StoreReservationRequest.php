@@ -2,13 +2,29 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Product;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class StoreReservationRequest extends FormRequest
 {
     public function authorize(): bool
     {
         return true;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $items = collect($this->input('items', []))
+            ->filter(fn($item) => (int)($item['quantity'] ?? 0) > 0)
+            ->map(fn($item) => [
+                'product_id' => (int)($item['product_id'] ?? 0),
+                'quantity' => (int)($item['quantity'] ?? 0),
+            ])
+            ->values()
+            ->all();
+
+        $this->merge(['items' => $items]);
     }
 
     public function rules(): array
@@ -28,5 +44,39 @@ class StoreReservationRequest extends FormRequest
             'items.*.product_id' => ['required', 'exists:products,id'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
         ];
+    }
+
+    public function after(): array
+    {
+        return [function (Validator $validator) {
+            if ($validator->fails()) {
+                return;
+            }
+
+            $storeId = (int)$this->input('store_id');
+            if (!$storeId) {
+                return;
+            }
+
+            $items = collect($this->input('items', []));
+            if ($items->isEmpty()) {
+                return;
+            }
+
+            $productIds = $items->pluck('product_id')->unique()->filter()->all();
+            if (empty($productIds)) {
+                return;
+            }
+
+            $availableIds = Product::whereIn('id', $productIds)
+                ->availableForStore($storeId)
+                ->pluck('id')
+                ->all();
+
+            $diff = array_diff($productIds, $availableIds);
+            if (!empty($diff)) {
+                $validator->errors()->add('items', '選択された商品はこの店舗では利用できません。');
+            }
+        }];
     }
 }

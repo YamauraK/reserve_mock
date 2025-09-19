@@ -24,7 +24,7 @@
                 <label class="label">店舗 <span class="required">必須</span></label>
                 <select name="store_id" class="select" required>
                     @foreach($stores as $s)
-                        <option value="{{ $s->id }}" @selected($defaultStoreId==$s->id)>{{ $s->name }}</option>
+                        <option value="{{ $s->id }}" @selected(old('store_id', $defaultStoreId)==$s->id)>{{ $s->name }}</option>
                     @endforeach
                 </select>
             </div>
@@ -88,26 +88,36 @@
             <div class="form-section-title">商品</div>
         </div>
 
-        <div class="product-list">
+        <div class="product-list" id="jsProductList">
             @foreach($products as $p)
-                <div class="product-row">
-                    <div class="product-name">
-                        <div class="font-semibold">{{ $p->name }}</div>
-                        <div class="text-sm text-gray-500">¥{{ number_format($p->price) }}</div>
+                <div class="product-block" data-product="{{ $p->id }}" data-global="{{ $p->is_all_store ? '1':'0' }}" data-stores="{{ $p->stores->pluck('id')->implode(',') }}">
+                    <div class="product-row">
+                        <div class="product-name">
+                            <div class="font-semibold flex items-center gap-2">
+                                <span>{{ $p->name }}</span>
+                                @if(!$p->is_all_store)
+                                    <span class="badge bg-yellow-100 text-yellow-800 border border-yellow-200">店舗限定</span>
+                                @endif
+                            </div>
+                            <div class="text-sm text-gray-500">¥{{ number_format($p->price) }}</div>
+                        </div>
+                        <div class="product-qty">
+                            <label class="text-sm text-gray-500">数量</label>
+                            <input type="number" name="items[{{ $loop->index }}][quantity]" min="0" value="0"
+                                   class="input qty-input"
+                                   data-price="{{ $p->price }}"
+                                   oninput="window.calcTotal && window.calcTotal()">
+                            <input type="hidden" name="items[{{ $loop->index }}][product_id]" value="{{ $p->id }}" />
+                        </div>
                     </div>
-                    <div class="product-qty">
-                        <label class="text-sm text-gray-500">数量</label>
-                        <input type="number" name="items[{{ $loop->index }}][quantity]" min="0" value="0"
-                               class="input qty-input"
-                               data-price="{{ $p->price }}"
-                               oninput="window.calcTotal && window.calcTotal()">
-                        <input type="hidden" name="items[{{ $loop->index }}][product_id]" value="{{ $p->id }}" />
+                    <div class="text-xs text-emerald-700 mt-1 hidden disc-row" data-product="{{ $p->id }}">
+                        <span data-role="disc-label">早割</span>：-¥<span data-role="disc-line">0</span>
                     </div>
-                </div>
-                <div class="text-xs text-emerald-700 mt-1 hidden disc-row" data-product="{{ $p->id }}">
-                    <span data-role="disc-label">早割</span>：-¥<span data-role="disc-line">0</span>
                 </div>
             @endforeach
+            @if($products->isEmpty())
+                <div class="text-sm text-gray-500">選択できる商品がありません。先に商品マスタを設定してください。</div>
+            @endif
         </div>
 
         {{-- 合計（任意） --}}
@@ -146,7 +156,7 @@
     <script>
         window.calcTotal = function(){
             let total = 0;
-            document.querySelectorAll('.qty-input').forEach(el=>{
+            document.querySelectorAll('.qty-input:not([disabled])').forEach(el=>{
                 const q = parseInt(el.value || '0',10);
                 const price = parseInt(el.dataset.price || '0',10);
                 if(q>0) total += q*price;
@@ -163,23 +173,55 @@
             const selCampaign = form.querySelector('select[name="campaign_id"]');
             const selStore    = form.querySelector('select[name="store_id"]');
             const selChannel  = form.querySelector('select[name="channel"]');
-            const qtyInputs   = form.querySelectorAll('.qty-input');
 
             const discTotalEl = document.getElementById('jsDiscountTotal');
             const finalTotalEl= document.getElementById('jsFinalTotal');
             const noteEl      = document.getElementById('jsDiscountNote');
 
+            function filterProducts(){
+                const storeId = selStore?.value || '';
+                document.querySelectorAll('.product-block').forEach(block => {
+                    const isGlobal = block.dataset.global === '1';
+                    const stores = (block.dataset.stores || '').split(',').filter(Boolean);
+                    const available = isGlobal || (storeId && stores.includes(storeId));
+
+                    const qtyInput = block.querySelector('.qty-input');
+                    const hiddenInput = block.querySelector('input[type="hidden"][name$="[product_id]"]');
+                    const discRow = block.querySelector('.disc-row');
+
+                    if (available) {
+                        block.classList.remove('hidden');
+                        if (qtyInput) qtyInput.disabled = false;
+                        if (hiddenInput) hiddenInput.disabled = false;
+                    } else {
+                        block.classList.add('hidden');
+                        if (qtyInput) {
+                            qtyInput.value = '';
+                            qtyInput.disabled = true;
+                        }
+                        if (hiddenInput) hiddenInput.disabled = true;
+                        if (discRow) {
+                            discRow.classList.add('hidden');
+                            const lineEl = discRow.querySelector('[data-role="disc-line"]');
+                            if (lineEl) lineEl.textContent = '0';
+                        }
+                    }
+                });
+
+                window.calcTotal();
+            }
+
             async function preview(){
                 // 入力が揃っていなければリセット
-                if(!selCampaign.value || !selStore.value){
+                if(!selCampaign.value || !selStore?.value){
                     return resetUI();
                 }
                 // items（数量>0のみ）を収集
                 const items = [];
-                qtyInputs.forEach((el, idx) => {
+                form.querySelectorAll('.qty-input:not([disabled])').forEach((el) => {
                     const q = parseInt(el.value || '0', 10);
                     if(q > 0){
-                        const hidden = form.querySelector(`input[name="items[${idx}][product_id]"]`);
+                        const hidden = el.closest('.product-block')?.querySelector('input[type="hidden"][name$="[product_id]"]');
                         if(hidden) items.push({ product_id: Number(hidden.value), quantity: q });
                     }
                 });
@@ -254,11 +296,20 @@
             // イベント登録（既存の calcTotal と共存）
             ['change','input'].forEach(ev=>{
                 selCampaign.addEventListener(ev, preview);
-                selStore.addEventListener(ev, preview);
+                if(selStore) selStore.addEventListener(ev, preview);
                 if(selChannel) selChannel.addEventListener(ev, preview);
-                qtyInputs.forEach(el => el.addEventListener(ev, preview));
+                form.addEventListener(ev, event => {
+                    if(event.target?.classList?.contains('qty-input')){
+                        preview();
+                    }
+                }, true);
             });
 
+            if(selStore){
+                selStore.addEventListener('change', filterProducts);
+            }
+
+            filterProducts();
             // 初期計算
             preview();
         })();
