@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
+use App\Models\Store;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -12,7 +13,11 @@ class UserController extends Controller
 {
     public function index()
     {
-        $users = User::query()->select(['id','name','email','role','created_at'])->latest()->paginate(20);
+        $users = User::query()
+            ->select(['id','name','email','role','store_id','created_at'])
+            ->with('store:id,name')
+            ->latest()
+            ->paginate(20);
         $roleLabels = UserRole::labels();
         return view('users.index', compact('users','roleLabels'));
     }
@@ -20,7 +25,8 @@ class UserController extends Controller
     public function create()
     {
         $roles = UserRole::options();
-        return view('users.create', compact('roles'));
+        $stores = Store::orderBy('name')->get(['id','name']);
+        return view('users.create', compact('roles','stores'));
     }
 
     public function store(Request $request)
@@ -30,7 +36,16 @@ class UserController extends Controller
             'email'    => ['required','email','max:255','unique:users,email'],
             'password' => ['required','string','min:8'],
             'role'     => ['required', Rule::in(array_keys(UserRole::labels()))],
+            'store_id' => [
+                'nullable',
+                Rule::exists('stores','id'),
+                Rule::requiredIf(fn() => $request->input('role') === UserRole::STORE),
+            ],
         ]);
+
+        if ($data['role'] !== UserRole::STORE) {
+            $data['store_id'] = null;
+        }
         User::create($data);
         return redirect()->route('users.index')->with('success','ユーザーを作成しました');
     }
@@ -38,7 +53,8 @@ class UserController extends Controller
     public function edit(User $user)
     {
         $roles = UserRole::options();
-        return view('users.edit', compact('user','roles'));
+        $stores = Store::orderBy('name')->get(['id','name']);
+        return view('users.edit', compact('user','roles','stores'));
     }
 
     public function update(Request $request, User $user)
@@ -48,9 +64,18 @@ class UserController extends Controller
             'email'    => ['required','email','max:255', Rule::unique('users','email')->ignore($user->id)],
             'password' => ['nullable','string','min:8'],
             'role'     => ['required', Rule::in(array_keys(UserRole::labels()))],
+            'store_id' => [
+                'nullable',
+                Rule::exists('stores','id'),
+                Rule::requiredIf(fn() => $request->input('role') === UserRole::STORE),
+            ],
         ]);
         // 空パスワードは更新しない
         if (empty($data['password'])) unset($data['password']);
+
+        if (($data['role'] ?? null) !== UserRole::STORE) {
+            $data['store_id'] = null;
+        }
 
         $user->update($data);
         return redirect()->route('users.index')->with('success','ユーザーを更新しました');
