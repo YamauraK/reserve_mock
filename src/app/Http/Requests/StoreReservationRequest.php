@@ -41,7 +41,7 @@ class StoreReservationRequest extends FormRequest
             'pickup_date' => ['nullable', 'date'],
             'pickup_time_slot' => ['nullable', 'string', 'max:50'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'exists:products,id'],
+            'items.*.product_id' => ['required', 'integer', 'min:1'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
         ];
     }
@@ -65,6 +65,16 @@ class StoreReservationRequest extends FormRequest
 
             $productIds = $items->pluck('product_id')->unique()->filter()->all();
             if (empty($productIds)) {
+                return;
+            }
+
+            $existingIds = Product::whereIn('id', $productIds)
+                ->pluck('id')
+                ->all();
+
+            $missingIds = array_diff($productIds, $existingIds);
+            if (!empty($missingIds)) {
+                $validator->errors()->add('items', '選択された商品が存在しません。');
                 return;
             }
 
