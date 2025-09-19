@@ -20,6 +20,7 @@
     @php
         $defaultSelectedStoreIds = $selectedStoreIds ?? [];
         $defaultStoreProductSelections = $storeProductSelections ?? [];
+        $storeProductOptions = $storeProductOptions ?? [];
         $selectedStoreIds = collect(old('store_ids', $defaultSelectedStoreIds))
             ->map(fn($id) => (int) $id)
             ->filter()
@@ -111,9 +112,9 @@
                                     multiple
                                     size="5"
                                     {{ $isChecked ? '' : 'disabled' }}>
-                                @foreach($products as $product)
-                                    <option value="{{ $product->id }}" @selected(in_array($product->id, $selectedProducts, true))>
-                                        {{ $product->name }}
+                                @foreach($storeProductOptions[$store->id] ?? [] as $product)
+                                    <option value="{{ $product['id'] }}" @selected(in_array($product['id'], $selectedProducts, true))>
+                                        {{ $product['name'] }}
                                     </option>
                                 @endforeach
                             </select>

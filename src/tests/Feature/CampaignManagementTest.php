@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Symfony\Component\DomCrawler\Crawler;
 use Tests\TestCase;
 
 class CampaignManagementTest extends TestCase
@@ -142,5 +143,48 @@ class CampaignManagementTest extends TestCase
         $response->assertSee('表示店舗');
         $response->assertSee('表示商品');
         $response->assertSee('option value="' . $product->id . '" selected', false);
+    }
+
+    public function test_create_form_lists_products_available_for_each_store(): void
+    {
+        $user = User::factory()->create();
+        [$storeA, $storeB] = Store::factory()->count(2)->create();
+
+        $commonProduct = Product::factory()->create([
+            'name' => '共通商品',
+            'is_all_store' => true,
+        ]);
+        $storeAProduct = Product::factory()->create(['name' => '店舗A商品']);
+        $storeBProduct = Product::factory()->create(['name' => '店舗B商品']);
+        $unassignedProduct = Product::factory()->create(['name' => '未割当商品']);
+
+        $storeA->products()->attach($storeAProduct);
+        $storeB->products()->attach($storeBProduct);
+
+        $response = $this->actingAs($user)->get(route('campaigns.create'));
+
+        $response->assertOk();
+
+        $crawler = new Crawler($response->getContent());
+
+        $storeAOptions = $crawler
+            ->filter('#store-products-' . $storeA->id . ' select option')
+            ->each(fn($node) => (int) $node->attr('value'));
+        $storeBOptions = $crawler
+            ->filter('#store-products-' . $storeB->id . ' select option')
+            ->each(fn($node) => (int) $node->attr('value'));
+
+        $this->assertEqualsCanonicalizing([
+            $commonProduct->id,
+            $storeAProduct->id,
+        ], $storeAOptions);
+        $this->assertEqualsCanonicalizing([
+            $commonProduct->id,
+            $storeBProduct->id,
+        ], $storeBOptions);
+        $this->assertNotContains($unassignedProduct->id, $storeAOptions);
+        $this->assertNotContains($unassignedProduct->id, $storeBOptions);
+        $this->assertNotContains($storeAProduct->id, $storeBOptions);
+        $this->assertNotContains($storeBProduct->id, $storeAOptions);
     }
 }
