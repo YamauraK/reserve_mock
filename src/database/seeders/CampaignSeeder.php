@@ -13,7 +13,31 @@ class CampaignSeeder extends Seeder
      */
     public function run(): void
     {
-        Campaign::create(['name'=>'おせち2025','description'=>'おせち予約','start_date'=>'2025-10-01','end_date'=>'2025-12-25']);
-        Campaign::create(['name'=>'恵方巻2026','description'=>'節分企画','start_date'=>'2026-01-10','end_date'=>'2026-02-03']);
+        $campaigns = [
+            [
+                'name' => 'おせち2025',
+                'description' => 'おせち予約',
+                'start_date' => '2025-10-01',
+                'end_date' => '2025-12-25',
+            ],
+            [
+                'name' => '恵方巻2026',
+                'description' => '節分企画',
+                'start_date' => '2026-01-10',
+                'end_date' => '2026-02-03',
+            ],
+        ];
+
+        foreach ($campaigns as $campaign) {
+            Campaign::updateOrCreate(
+                ['name' => $campaign['name']],
+                [
+                    'description' => $campaign['description'],
+                    'start_date' => $campaign['start_date'],
+                    'end_date' => $campaign['end_date'],
+                    'is_active' => true,
+                ]
+            );
+        }
     }
 }
